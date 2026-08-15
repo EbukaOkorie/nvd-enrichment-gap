@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -80,7 +81,15 @@ def pull_current_state() -> pl.DataFrame:
 
     Checkpoints to disk every few pages. A network failure halfway through
     costs a rerun of the remaining pages, not the whole corpus."""
-    api_key = os.environ.get("NVD_API_KEY")
+    api_key = (os.environ.get("NVD_API_KEY") or "").strip()
+    if api_key:
+        # An illegal header value raises LocalProtocolError on every attempt,
+        # so catch a malformed key here rather than burning six retries on it.
+        if not re.fullmatch(r"[A-Za-z0-9\-]{20,}", api_key):
+            raise SystemExit(
+                "NVD_API_KEY does not look like a valid key. Check for stray "
+                "whitespace, quotes or line breaks in the value."
+            )
     headers = {"apiKey": api_key} if api_key else {}
     sleep_for = 1.0 if api_key else 6.5
     if not api_key:
@@ -112,6 +121,13 @@ def pull_current_state() -> pl.DataFrame:
             for attempt in range(6):
                 try:
                     r = client.get(API_URL, params=params, headers=headers)
+                except httpx.LocalProtocolError as exc:
+                    # Client-side error, usually a malformed header. Retrying
+                    # cannot help, so stop immediately with a useful message.
+                    raise SystemExit(
+                        f"request rejected before sending: {exc}. "
+                        f"This is almost always a malformed NVD_API_KEY."
+                    ) from exc
                 except httpx.RequestError as exc:
                     wait = min(90, 2 ** attempt * 5)
                     print(f"  {exc.__class__.__name__} at {start_index}, retry in {wait}s", file=sys.stderr)
