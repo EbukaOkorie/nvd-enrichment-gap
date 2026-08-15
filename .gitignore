@@ -1,0 +1,14 @@
+data/raw/
+data/interim/
+data/outputs/
+data/collect_state.json
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Snapshots are the point of the project and are committed deliberately.
+!data/snapshots/
+
+# Checkpoints are transient working state, not results.
+data/snapshots/partial/
