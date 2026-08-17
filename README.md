@@ -170,8 +170,17 @@ quality.
 - [ ] Map CNAs to ecosystem categories rather than leaving raw email identifiers
 - [ ] Publication format and versioning scheme
 - [ ] Zenodo deposit for citable DOI
-- [ ] Licence files
+- [x] Licence files
 
 ## Licence
 
-To be confirmed. Intended as MIT for code and CC BY 4.0 for published data.
+Code in `src/` and `.github/` is MIT licensed. See `LICENSE`.
+
+Data in `data/snapshots/` is licensed CC BY 4.0. See `LICENSE-DATA.md`, which
+also sets out what the licence does and does not cover.
+
+This product uses data from the NVD API but is not endorsed or certified by the
+NVD. Files in `data/snapshots/` are derived from NVD records rather than copies
+of them, and should not be attributed to the NVD as unmodified source data.
+Figures published here carry no warranty and should not be the sole basis for a
+security decision.
