@@ -1,0 +1,47 @@
+{
+  "_about": "Maps CVE Numbering Authorities to ecosystem groups, so a user can say 'I run WordPress' and have it resolve to records in the data. Every shortName here was checked against the official CNA list at CVEProject/cve-website. Groups are a judgement call, not an official taxonomy: several CNAs span more than one ecosystem and are placed where the bulk of their output sits. Extend this file rather than editing code.",
+
+  "_unresolved_note": "Some assigners in NVD data appear as UUIDs rather than emails and cannot be resolved from the official list. Run build_cna_map.py to see which UUIDs carry enough volume to be worth identifying by hand.",
+
+  "_overrides_note": "NVD sometimes reports an assigner email that the CNA does not list officially, and some CNAs list no email at all. Exact and domain matching both fail in those cases, so map them here by hand. Key is the assigner string exactly as it appears in NVD data, value is the official shortName.",
+
+  "assigner_overrides": {
+    "cve@mitre.org": "mitre",
+    "ics-cert@hq.dhs.gov": "icscert"
+  },
+
+  "ecosystems": {
+    "wordpress": {
+      "label": "WordPress core and plugins",
+      "cnas": ["Patchstack", "Wordfence", "WPScan"]
+    },
+    "cms_other": {
+      "label": "Other content management systems",
+      "cnas": ["Joomla", "drupal", "TYPO3"]
+    },
+    "linux_distro": {
+      "label": "Linux distributions and kernel",
+      "cnas": ["redhat", "Linux", "canonical", "suse", "debian"]
+    },
+    "open_source_libraries": {
+      "label": "Open source libraries and package registries",
+      "cnas": ["GitHub_M", "apache", "nodejs", "rust", "PSF", "Go"]
+    },
+    "enterprise_software": {
+      "label": "Large commercial vendors",
+      "cnas": ["microsoft", "oracle", "ibm", "sap", "adobe", "vmware", "HCL", "symantec", "trendmicro"]
+    },
+    "networking": {
+      "label": "Network and security appliances",
+      "cnas": ["cisco", "fortinet", "juniper", "palo_alto", "F5"]
+    },
+    "ics_ot": {
+      "label": "Industrial control and operational technology",
+      "cnas": ["icscert", "CERTVDE", "siemens", "schneider", "ABB"]
+    },
+    "aggregator": {
+      "label": "Aggregators and third party reporters",
+      "cnas": ["VulDB", "VulnCheck", "mitre", "hackerone", "zdi"]
+    }
+  }
+}

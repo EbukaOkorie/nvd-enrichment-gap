@@ -1,0 +1,20 @@
+{
+  "title": "NVD Enrichment Gap Tracker",
+  "upload_type": "dataset",
+  "description": "<p>A dated snapshot series measuring how many CVE records lack the CPE product identifiers that vulnerability scanners require in order to detect them.</p><p>Records without CPE strings cannot be matched to installed software, so they are invisible to scanners rather than merely deprioritised. This project tracks that absence over time, broken down by publication cohort and by assigning CVE Numbering Authority.</p><p>Data is derived from records retrieved through the NVD API. This product uses data from the NVD API but is not endorsed or certified by the NVD. Files here are derived rather than unmodified copies and should not be attributed to the NVD as source data.</p><p>Figures are provided without warranty and should not be the sole basis for any security decision.</p>",
+  "creators": [
+    {
+      "name": "Okorie, Chukwuebuka"
+    }
+  ],
+  "keywords": [
+    "vulnerability management",
+    "CVE",
+    "CPE",
+    "NVD",
+    "vulnerability scanning",
+    "security data",
+    "open data"
+  ],
+  "access_right": "open"
+}

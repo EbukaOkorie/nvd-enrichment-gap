@@ -2,6 +2,9 @@ data/raw/
 data/interim/
 data/outputs/
 data/collect_state.json
+data/reference/cna_map.csv
+data/reference/cna_list.json
+data/reference/assigner_lookup.json
 .venv/
 __pycache__/
 *.pyc

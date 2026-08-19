@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: NVD Enrichment Gap Tracker
+message: >-
+  If you use this dataset or code, please cite it using the
+  metadata below.
+type: dataset
+authors:
+  - given-names: Chukwuebuka
+    family-names: Okorie
+repository-code: "https://github.com/EbukaOkorie/nvd-enrichment-gap"
+abstract: >-
+  A dated snapshot series measuring how many CVE records lack the
+  CPE product identifiers that vulnerability scanners require in
+  order to detect them, derived from the U.S. National
+  Vulnerability Database. Includes cohort analysis by publication
+  month and a breakdown of coverage by assigning CVE Numbering
+  Authority, used as a proxy for software ecosystem.
+keywords:
+  - vulnerability management
+  - CVE
+  - CPE
+  - NVD
+  - vulnerability scanning
+  - security data
+license: CC-BY-4.0
