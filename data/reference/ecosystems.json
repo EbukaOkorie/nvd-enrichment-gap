@@ -1,47 +1,227 @@
 {
   "_about": "Maps CVE Numbering Authorities to ecosystem groups, so a user can say 'I run WordPress' and have it resolve to records in the data. Every shortName here was checked against the official CNA list at CVEProject/cve-website. Groups are a judgement call, not an official taxonomy: several CNAs span more than one ecosystem and are placed where the bulk of their output sits. Extend this file rather than editing code.",
-
   "_unresolved_note": "Some assigners in NVD data appear as UUIDs rather than emails and cannot be resolved from the official list. Run build_cna_map.py to see which UUIDs carry enough volume to be worth identifying by hand.",
-
   "_overrides_note": "NVD sometimes reports an assigner email that the CNA does not list officially, and some CNAs list no email at all. Exact and domain matching both fail in those cases, so map them here by hand. Key is the assigner string exactly as it appears in NVD data, value is the official shortName.",
-
   "assigner_overrides": {
+    "0df08a0e-a200-4957-9bb0-084f562506f9": "GV",
+    "0fc0942c-577d-436f-ae8e-945763c79b02": "Zohocorp",
+    "14984358-7092-470d-8f34-ade47a7658a2": "Foxit",
+    "2499f714-1537-4658-8207-48ae4bb9eae9": "curl",
+    "309f9ea4-e3e9-4c6c-b79d-e8eb01244f2c": "TuranSec",
+    "33c584b5-0579-4c06-b2a0-8d8329fcab9c": "securin",
+    "367425dc-4d06-4041-9650-c2dc6aaa27ce": "imaginationtech",
+    "3836d913-7555-4dd0-a509-f5667fdf5fe4": "Honor",
+    "3938794e-25f5-4123-a1ba-5cbd7f104512": "Tanium",
+    "3c1d8aa1-5a33-4ea4-8992-aadd6440af75": "ivanti",
+    "416baaa9-dc9f-4396-8d5f-8c081fb06d67": "Linux",
+    "54bf65a7-a193-42d2-b1ba-8e150d3c35e1": "ASUS",
+    "551230f0-3615-47bd-b7cc-93e92e730bbf": "SEC-VLab",
+    "5a6e4751-2f3f-4070-9419-94fb35b644e8": "CIRCL",
+    "5d1c2695-1a31-4499-88ae-e847036fd7e3": "WatchGuard",
+    "6b3ad84c-e1a6-4bf7-a703-f496b71e49db": "EEF",
+    "6f8de1f0-f67e-45a6-b68f-98777fdb759c": "HiddenLayer",
+    "759f5e80-c8e1-4224-bead-956d7b33c98b": "Deltaww",
+    "88ee5874-cf24-4952-aea0-31affedb7ff2": "Gitea",
+    "9119a7d8-5eab-497f-8521-727c672e3725": "cisa-cg",
+    "9b29abf9-4ab0-4765-b253-1875cd9b441e": "CPANSec",
+    "PSIRT-CNA@flexerasoftware.com": "flexera",
+    "SecurityResponse@netmotionsoftware.com": "Absolute",
+    "a6d3dc9e-0591-4a13-bce7-0f5b31ff6158": "ENISA",
+    "b7efe717-a805-47cf-8e9a-921fca0ce0ce": "Gridware",
+    "c4f26cc8-17ff-4c99-b5e2-38fc1793eacc": "wikimedia-foundation",
+    "ce714d77-add3-4f53-aff5-83d477b104bb": "openjs",
+    "cve-assign@fb.com": "Meta",
     "cve@mitre.org": "mitre",
-    "ics-cert@hq.dhs.gov": "icscert"
+    "cve_disclosure@tech.gov.sg": "GovTech CSG",
+    "ed10eef1-636d-4fbe-9993-6890dfa878f8": "WSO2",
+    "f23511db-6c3e-4e32-a477-6aa17d310630": "TPLink",
+    "f86ef6dc-4d3a-42ad-8f28-e6d5547a5007": "PostgreSQL",
+    "ff5b8ace-8b95-4078-9743-eac1ca5451de": "ConcreteCMS",
+    "ff89ba41-3aa1-4d27-914a-91399e9639e5": "AMZN",
+    "ics-cert@hq.dhs.gov": "icscert",
+    "iletisim@usom.gov.tr": "TR-CERT",
+    "jordan@liggitt.net": "kubernetes",
+    "josh@bress.net": "dwf",
+    "patrick@puiterwijk.org": "fedora",
+    "prodsec@splunk.com": "Splunk",
+    "psirt-info@cyber.jp.nec.com": "NEC",
+    "psirt@fortinet.com": "fortinet",
+    "psirt@hcl.com": "HCL",
+    "psirt@zte.com.cn": "zte",
+    "secure@symantec.com": "symantec",
+    "security@android.com": "google_android",
+    "security@huntr.dev": "@huntr_ai",
+    "security@nortonlifelock.com": "GEN",
+    "security@pivotal.io": "pivotal",
+    "security@puppet.com": "Perforce",
+    "security@qnapsecurity.com.tw": "qnap",
+    "security@vmware.com": "vmware",
+    "security_alert@emc.com": "dell",
+    "sirt@brocade.com": "brocade",
+    "support@hackerone.com": "hackerone",
+    "vuln@ca.com": "ca",
+    "vulnerabilitylab@mend.io": "Mend"
   },
-
   "ecosystems": {
     "wordpress": {
       "label": "WordPress core and plugins",
-      "cnas": ["Patchstack", "Wordfence", "WPScan"]
+      "cnas": [
+        "Patchstack",
+        "Wordfence",
+        "WPScan"
+      ]
     },
     "cms_other": {
       "label": "Other content management systems",
-      "cnas": ["Joomla", "drupal", "TYPO3"]
+      "cnas": [
+        "Joomla",
+        "drupal",
+        "TYPO3",
+        "ConcreteCMS"
+      ]
     },
     "linux_distro": {
       "label": "Linux distributions and kernel",
-      "cnas": ["redhat", "Linux", "canonical", "suse", "debian"]
+      "cnas": [
+        "redhat",
+        "Linux",
+        "canonical",
+        "suse",
+        "debian",
+        "fedora"
+      ]
     },
     "open_source_libraries": {
       "label": "Open source libraries and package registries",
-      "cnas": ["GitHub_M", "apache", "nodejs", "rust", "PSF", "Go"]
+      "cnas": [
+        "GitHub_M",
+        "apache",
+        "nodejs",
+        "rust",
+        "PSF",
+        "Go",
+        "PostgreSQL",
+        "kubernetes",
+        "Gitea",
+        "openjs",
+        "curl",
+        "CPANSec",
+        "EEF",
+        "wikimedia-foundation",
+        "jenkins",
+        "GitLab",
+        "mozilla",
+        "pivotal"
+      ]
     },
     "enterprise_software": {
       "label": "Large commercial vendors",
-      "cnas": ["microsoft", "oracle", "ibm", "sap", "adobe", "vmware", "HCL", "symantec", "trendmicro"]
+      "cnas": [
+        "microsoft",
+        "oracle",
+        "ibm",
+        "sap",
+        "adobe",
+        "vmware",
+        "HCL",
+        "symantec",
+        "trendmicro",
+        "dell",
+        "hpe",
+        "intel",
+        "flexera",
+        "ivanti",
+        "Meta",
+        "AMZN",
+        "Zohocorp",
+        "Splunk",
+        "Perforce",
+        "WSO2",
+        "imaginationtech",
+        "ca",
+        "NEC",
+        "Foxit",
+        "Absolute",
+        "Tanium",
+        "GEN",
+        "Synopsys",
+        "M-Files",
+        "PandoraFMS",
+        "Hitachi_Vantara",
+        "PingIdentity",
+        "AMI",
+        "qnap",
+        "apple"
+      ]
     },
     "networking": {
       "label": "Network and security appliances",
-      "cnas": ["cisco", "fortinet", "juniper", "palo_alto", "F5"]
+      "cnas": [
+        "cisco",
+        "fortinet",
+        "juniper",
+        "palo_alto",
+        "F5",
+        "ZTE",
+        "brocade",
+        "TPLink",
+        "WatchGuard",
+        "OpenVPN",
+        "huawei"
+      ]
     },
     "ics_ot": {
       "label": "Industrial control and operational technology",
-      "cnas": ["icscert", "CERTVDE", "siemens", "schneider", "ABB"]
+      "cnas": [
+        "icscert",
+        "CERTVDE",
+        "siemens",
+        "schneider",
+        "ABB",
+        "Deltaww",
+        "Eaton"
+      ]
+    },
+    "mobile_hardware": {
+      "label": "Mobile platforms and hardware",
+      "cnas": [
+        "google_android",
+        "Samsung_Mobile",
+        "Xiaomi",
+        "Honor",
+        "qualcomm",
+        "Arm",
+        "ASUS"
+      ]
     },
     "aggregator": {
-      "label": "Aggregators and third party reporters",
-      "cnas": ["VulDB", "VulnCheck", "mitre", "hackerone", "zdi"]
+      "label": "Aggregators, CERTs and third party reporters",
+      "cnas": [
+        "VulDB",
+        "VulnCheck",
+        "mitre",
+        "hackerone",
+        "zdi",
+        "certcc",
+        "jpcert",
+        "TR-CERT",
+        "INCIBE",
+        "cisa-cg",
+        "dwf",
+        "Mend",
+        "SEC-VLab",
+        "GovTech CSG",
+        "CIRCL",
+        "ENISA",
+        "securin",
+        "HiddenLayer",
+        "Gridware",
+        "talos",
+        "@huntr_ai",
+        "TuranSec",
+        "GV"
+      ]
     }
-  }
+  },
+  "_shortname_note": "A few shortNames here are not in the current official CNA list because those CNAs were retired or acquired (for example pivotal and Splunk). They still appear as assignerShortName on published records, which is what matching uses, so they stay. Matching is case insensitive."
 }

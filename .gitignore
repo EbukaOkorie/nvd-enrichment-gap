@@ -5,6 +5,10 @@ data/collect_state.json
 data/reference/cna_map.csv
 data/reference/cna_list.json
 data/reference/assigner_lookup.json
+data/reference/cna_map.csv
+data/reference/cna_list.json
+data/reference/assigner_lookup.json
+data/reference/ecosystems.json.bak
 .venv/
 __pycache__/
 *.pyc
