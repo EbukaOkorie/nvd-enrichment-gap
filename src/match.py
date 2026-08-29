@@ -187,7 +187,8 @@ def name_candidates(text: str) -> dict:
     return keys
 
 
-def find(df: pl.DataFrame, product: str, version: str | None) -> pl.DataFrame:
+def find(df: pl.DataFrame, product: str, version: str | None,
+         cpe_absent_only: bool = True) -> pl.DataFrame:
     keys = name_candidates(product)
 
     tiers = [
@@ -207,18 +208,26 @@ def find(df: pl.DataFrame, product: str, version: str | None) -> pl.DataFrame:
         if keys["slug"] is None:
             break
         found = df.filter(expr)
-        if found.height:
-            hits, tier_used = found, name
-            break
+        if not found.height:
+            continue
+
+        # Filter inside the loop, not after it. A tier can match rows that all
+        # get filtered out, and stopping there would report nothing while a
+        # looser tier still had real hits.
+        if cpe_absent_only and "nvd_cpe_absent" in found.columns:
+            found = found.filter(pl.col("nvd_cpe_absent"))
+        # Entries marked unaffected describe safe versions, not vulnerable ones.
+        found = found.filter(pl.col("status") == "affected")
+        if not found.height:
+            continue
+
+        hits, tier_used = found, name
+        break
 
     if hits is None or not hits.height:
         return pl.DataFrame()
 
     hits = hits.with_columns(pl.lit(tier_used).alias("match_tier"))
-
-    # Vulnerable means an entry marked affected. Entries marked unaffected
-    # describe safe versions and must not be reported as hits.
-    hits = hits.filter(pl.col("status") == "affected")
 
     if version is None:
         return hits.with_columns(

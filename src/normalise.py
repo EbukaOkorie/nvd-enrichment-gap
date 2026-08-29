@@ -35,6 +35,7 @@ import polars as pl
 
 ROOT = Path(__file__).resolve().parent.parent
 IN = ROOT / "data" / "interim" / "cna_products.parquet"
+NVD = ROOT / "data" / "interim" / "cves.parquet"
 OUT = ROOT / "data" / "interim" / "normalised_products.parquet"
 
 # Dropped from the end of vendor names before comparison. Order matters:
@@ -85,6 +86,7 @@ OUT_SCHEMA = {
     "upper": pl.Utf8,
     "upper_inclusive": pl.Boolean,
     "parse_quality": pl.Utf8,
+    "nvd_cpe_absent": pl.Boolean,
 }
 
 
@@ -241,6 +243,18 @@ def main() -> None:
     src = pl.read_parquet(IN)
     print(f"normalising {src.height} affected entries")
 
+    # Which of these CVEs does NVD publish without CPE data? Without this the
+    # audit cannot tell "this product is properly covered" from "I could not
+    # find this product", which are opposite answers.
+    absent: set[str] = set()
+    have_nvd = NVD.exists()
+    if have_nvd:
+        nvd = pl.read_parquet(NVD)
+        absent = set(nvd.filter(pl.col("cpe_absent"))["cve_id"].to_list())
+        print(f"  {len(absent)} of {nvd.height} NVD records carry no CPE")
+    else:
+        print(f"  WARNING: {NVD.name} not found, every row will be marked CPE-absent")
+
     rows = []
     for rec in src.iter_rows(named=True):
         vendor_slug = slugify(rec["vendor"])
@@ -279,6 +293,7 @@ def main() -> None:
                 "product_base": base,
                 "product_base_compact": base.replace("-", "") if base else None,
                 "product_trailing_version": trailing,
+                "nvd_cpe_absent": (rec["cve_id"] in absent) if have_nvd else True,
                 "package_slug": package_slug,
                 "default_status": rec["default_status"],
                 "cna_cpes": rec["cpes"],
