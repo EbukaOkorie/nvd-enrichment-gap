@@ -38,6 +38,20 @@ restrict use of public facts.
 
 ## Source attribution and disclaimers
 
+### CVE Program
+
+Product and version data in this project is derived from the CVE List,
+maintained by the CVE Program. The CVE List may be freely downloaded, copied,
+redistributed and analysed, provided CVE itself is not modified. Records here
+have been reduced to selected fields and reorganised, so they are derived data
+and are not the CVE List.
+
+CVE and the CVE logo are registered trademarks of The MITRE Corporation. This
+project is not endorsed by, affiliated with, or sponsored by the CVE Program or
+MITRE. Authoritative records are at https://www.cve.org.
+
+### NVD
+
 This product uses data from the NVD API but is not endorsed or certified by
 the NVD.
 

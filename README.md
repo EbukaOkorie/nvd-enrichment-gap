@@ -4,6 +4,10 @@ Measuring how many CVE records lack the product identifiers that vulnerability
 scanners need in order to detect them, and which software ecosystems are
 affected.
 
+Two things live here. A dataset tracking the gap over time, and a tool that
+takes a list of software you run and tells you which of those undetectable
+vulnerabilities apply to it.
+
 **Status: first analysis complete, findings provisional. Figures below come
 from a single snapshot taken 14 August 2026 and have not been independently
 reviewed.**
@@ -142,12 +146,80 @@ requests per thirty seconds, which makes a full backfill impractical.
 
 ## Usage
 
-    python src/probe_nvd.py           # verify API behaviour, costs 3 requests
+### Measuring the gap
+
+    python src/probe_nvd.py               # verify API behaviour, costs 3 requests
     python src/collect_nvd.py backfill    # collect full corpus, resumable
-    python src/build_dataset.py       # deduplicate and flag, writes parquet
-    python src/analyse.py             # cohort tables and CNA breakdown
+    python src/build_dataset.py           # deduplicate and flag, writes parquet
+    python src/analyse.py                 # cohort tables and CNA breakdown
+    python src/build_cna_map.py           # group CNAs into ecosystems
 
 Raw responses land in `data/raw/` and are not committed.
+
+### Auditing your own software
+
+Build the product index first. The ingestion step downloads a bulk archive of
+around 600 MB, so it takes a while.
+
+    python src/ingest_cve_list.py --all   # CNA-supplied product data
+    python src/normalise.py               # clean names, parse version ranges
+
+Then audit an inventory. See `example_inventory.txt` for the accepted formats.
+
+    python src/audit.py --inventory example_inventory.txt
+
+Or query a single product:
+
+    python src/match.py --product "WooCommerce Subscriptions" --version 4.2.1
+    python src/match.py --validate        # check name matching against real CPEs
+
+## How the audit works
+
+NVD publishes a growing number of CVEs without CPE strings. A scanner that
+matches on CPE has nothing to match those against, so they never surface.
+
+The CNA that reported each one usually did say which software is affected, just
+as plain text rather than as a CPE string. Across the full corpus, 362,172 of
+380,163 records carry that product data.
+
+The tool normalises those names and version ranges, then compares them against
+the software you list. Each item comes back as one of four outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| blind spot | CVEs apply and NVD has no CPE for them |
+| covered | found, and NVD publishes CPE, so a scanner can see them |
+| none at this version | found, but nothing applies at the version given |
+| unrecognised | not found, so the tool has no opinion |
+
+The last one is not a clean bill of health. It usually means the CNA writes that
+product's name differently. Treating it as safe would be the single easiest way
+to misuse this tool.
+
+## How accurate is the matching
+
+Measured, not assumed. Around 20,000 entries carry a CPE supplied by the CNA
+alongside their plain-text name, which makes them ground truth: build a name
+from the text fields and compare it to the CPE the CNA actually published.
+
+On a 4,000 entry sample, vendor names agree 81.8% of the time, product names
+83.0%, and both together 64.8%. Run `python src/match.py --validate` to
+reproduce it.
+
+The remaining third is genuine naming divergence rather than a bug. A CNA may
+write "Red Hat Data Grid 8" and publish `redhat:jboss_data_grid`. No string
+rule derives one from the other, so closing that gap needs an alias dictionary,
+which does not exist here yet.
+
+Practically: this is sound for showing that a blind spot exists and roughly how
+large it is. It is not sound for claiming a complete list of everything
+affecting you. Around a third of matches will be missed.
+
+Three further limits worth knowing. Nearly 59% of version specs name a single
+exact version with no range, so someone running 4.2.1 will not match a CVE that
+lists only 4.2.0. Git commit hashes cannot be ordered, so those match exactly or
+not at all. And whether your particular scanner misses these records depends on
+how it works, which this project does not test.
 
 ## Limitations
 
@@ -155,9 +227,10 @@ Everything here rests on one snapshot. The lag correction described above uses
 deferral as a proxy for a settled outcome, which is a reasonable assumption but
 an untested one.
 
-Weekly snapshots are being introduced so that enrichment state can be tracked per
-record over time. That will allow the lag curve to be measured directly rather
-than inferred, and it cannot be reconstructed retrospectively.
+A weekly snapshot job now runs, storing enrichment state per record over time.
+Once enough history accumulates the lag curve can be measured directly rather
+than inferred. That history cannot be reconstructed retrospectively, which is
+why collection started before the analysis needed it.
 
 CNA-supplied CVSS scores have historically received less external scrutiny than
 NIST-assigned ones. This project counts their presence and does not assess their
@@ -165,12 +238,14 @@ quality.
 
 ## Open items
 
-- [ ] Weekly snapshot job, storing dated enrichment state per CVE
+- [x] Weekly snapshot job, storing dated enrichment state per CVE
+- [x] Map CNAs to ecosystem categories rather than leaving raw email identifiers
+- [x] Matching engine and inventory audit tool
+- [x] Licence files
+- [ ] Alias dictionary to close the remaining naming gap
 - [ ] Test whether records persist in Awaiting Analysis without being Deferred
-- [ ] Map CNAs to ecosystem categories rather than leaving raw email identifiers
 - [ ] Publication format and versioning scheme
 - [ ] Zenodo deposit for citable DOI
-- [x] Licence files
 
 ## Licence
 
@@ -182,5 +257,9 @@ also sets out what the licence does and does not cover.
 This product uses data from the NVD API but is not endorsed or certified by the
 NVD. Files in `data/snapshots/` are derived from NVD records rather than copies
 of them, and should not be attributed to the NVD as unmodified source data.
+
+Product data is derived from the CVE List, which is maintained by the CVE
+Program. CVE is a registered trademark of The MITRE Corporation. This project
+is not endorsed by or affiliated with the CVE Program or MITRE.
 Figures published here carry no warranty and should not be the sole basis for a
 security decision.
