@@ -164,6 +164,11 @@ around 600 MB, so it takes a while.
     python src/ingest_cve_list.py --all   # CNA-supplied product data
     python src/normalise.py               # clean names, parse version ranges
 
+Neither step needs an NVD API key. NVD's enrichment state is read from the
+snapshots committed in `data/snapshots/`, so a fresh clone is enough. To use a
+backfill you collected yourself instead, pass `--nvd-source backfill` to
+`normalise.py`.
+
 Then audit an inventory. See `example_inventory.txt` for the accepted formats.
 
     python src/audit.py --inventory example_inventory.txt
@@ -195,6 +200,23 @@ the software you list. Each item comes back as one of four outcomes:
 The last one is not a clean bill of health. It usually means the CNA writes that
 product's name differently. Treating it as safe would be the single easiest way
 to misuse this tool.
+
+Blind spots are then split by NVD's own status for each record, because "no
+CPE" covers different situations:
+
+| Split | Meaning |
+|---|---|
+| deferred | NVD has marked the record as not scheduled for enrichment. This is the settled gap |
+| queued | NVD has not processed the record yet. It has no CPE today and may or may not gain one |
+| analysed | NVD has processed the record and it still carries no CPE |
+
+For queued records the report gives the median wait since publication and how
+many have waited more than 30 days. Adding deferred and queued together
+overstates the permanent gap. Dropping the queued ones understates what a
+scanner misses today. Neither list is a list of safe software.
+
+The split is as current as the latest committed snapshot, and the report
+prints that date. CVEs published after it are not assessed.
 
 ## How accurate is the matching
 
@@ -273,6 +295,7 @@ quality.
 - [x] Map CNAs to ecosystem categories rather than leaving raw email identifiers
 - [x] Matching engine and inventory audit tool
 - [x] Licence files
+- [x] Audit splits blind spots into deferred and queued, and runs from the committed snapshots
 - [x] Validation scores every ground-truth entry and reports by CNA
 - [ ] Alias dictionary to close the remaining naming gap
 - [ ] A reference for CNAs that publish no CPEs, without which accuracy on the WordPress ecosystem stays unmeasured

@@ -17,11 +17,16 @@ No version ordering happens here. Comparing "2:3.28.1-2.el7_9" against
 "3.28.2" needs rpm semantics, and semver rules do not apply. That belongs in
 the matcher, which can pick comparison rules per version type.
 
+Each row also records what NVD says about its CVE: the status and whether the
+record carries any CPE. That comes from the snapshots committed in
+data/snapshots/, so no NVD API key or backfill is needed to run an audit.
+
 Writes data/interim/normalised_products.parquet.
 
 Usage:
     python src/normalise.py
     python src/normalise.py --show-unparsed 30
+    python src/normalise.py --nvd-source backfill   # use data/interim/cves.parquet
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -37,6 +43,7 @@ import polars as pl
 ROOT = Path(__file__).resolve().parent.parent
 IN = ROOT / "data" / "interim" / "cna_products.parquet"
 NVD = ROOT / "data" / "interim" / "cves.parquet"
+SNAPSHOTS = ROOT / "data" / "snapshots"
 OUT = ROOT / "data" / "interim" / "normalised_products.parquet"
 
 # Dropped from the end of vendor names before comparison. Order matters:
@@ -89,6 +96,8 @@ OUT_SCHEMA = {
     "upper_inclusive": pl.Boolean,
     "parse_quality": pl.Utf8,
     "nvd_cpe_absent": pl.Boolean,
+    "nvd_status": pl.Utf8,
+    "nvd_as_of": pl.Utf8,
 }
 
 
@@ -330,9 +339,62 @@ def parse_version(spec: dict, default_status: str | None) -> dict:
     }
 
 
+def load_nvd_state(source: str = "auto") -> tuple[dict[str, tuple[str | None, bool]], str | None, str]:
+    """What NVD currently says about each CVE: its status and whether it
+    carries no CPE.
+
+    Returns the lookup, the date it describes, and a label for where it came
+    from. The lookup is empty when no NVD data is available at all.
+
+    The committed snapshots are preferred. They are dated, they ship with the
+    repository, and they are refreshed weekly, so someone who has only cloned
+    the project can run an audit without an API key. The backfill table is
+    the fallback, and can be forced when it is the fresher of the two."""
+    state: dict[str, tuple[str | None, bool]] = {}
+
+    if source in ("auto", "snapshots"):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from snapshot import reconstruct, snapshot_files
+
+        baseline, deltas = snapshot_files()
+        if baseline is not None:
+            latest = (deltas[-1].stem.replace("delta_", "") if deltas
+                      else baseline.stem.replace("baseline_", ""))
+            frame = reconstruct()
+            for cve_id, status, count in frame.select(
+                ["cve_id", "vuln_status", "cpe_match_count"]
+            ).iter_rows():
+                # A rejected record is not a vulnerability, so its lack of CPE
+                # is correct rather than a gap.
+                state[cve_id] = (status, count == 0 and status != "Rejected")
+            return state, latest, f"snapshots in {SNAPSHOTS.relative_to(ROOT)}"
+        if source == "snapshots":
+            raise SystemExit(f"no snapshots found in {SNAPSHOTS}")
+
+    if NVD.exists():
+        frame = pl.read_parquet(NVD)
+        for cve_id, status, absent in frame.select(
+            ["cve_id", "vuln_status", "cpe_absent"]
+        ).iter_rows():
+            state[cve_id] = (status, bool(absent) and status != "Rejected")
+        as_of = None
+        if "last_modified" in frame.columns:
+            as_of = (frame["last_modified"].max() or "")[:10] or None
+        return state, as_of, NVD.name
+    if source == "backfill":
+        raise SystemExit(f"{NVD} not found. Run collect_nvd.py and build_dataset.py first.")
+
+    return state, None, "none"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--show-unparsed", type=int, default=15)
+    parser.add_argument(
+        "--nvd-source", choices=["auto", "snapshots", "backfill"], default="auto",
+        help="where NVD enrichment state comes from. auto uses the committed "
+             "snapshots and falls back to the backfill table",
+    )
     args = parser.parse_args()
 
     if not IN.exists():
@@ -341,17 +403,19 @@ def main() -> None:
     src = pl.read_parquet(IN)
     print(f"normalising {src.height} affected entries")
 
-    # Which of these CVEs does NVD publish without CPE data? Without this the
-    # audit cannot tell "this product is properly covered" from "I could not
-    # find this product", which are opposite answers.
-    absent: set[str] = set()
-    have_nvd = NVD.exists()
+    # Which of these CVEs does NVD publish without CPE data, and has NVD said
+    # it will stay that way? Without the first the audit cannot tell "this
+    # product is properly covered" from "I could not find this product", which
+    # are opposite answers. Without the second it cannot tell a record NVD has
+    # given up on from one published last week and still in the queue.
+    nvd_state, nvd_as_of, nvd_label = load_nvd_state(args.nvd_source)
+    have_nvd = bool(nvd_state)
     if have_nvd:
-        nvd = pl.read_parquet(NVD)
-        absent = set(nvd.filter(pl.col("cpe_absent"))["cve_id"].to_list())
-        print(f"  {len(absent)} of {nvd.height} NVD records carry no CPE")
+        absent_total = sum(1 for _, absent in nvd_state.values() if absent)
+        print(f"  NVD state from {nvd_label}, as of {nvd_as_of or 'an unknown date'}")
+        print(f"  {absent_total} of {len(nvd_state)} NVD records carry no CPE")
     else:
-        print(f"  WARNING: {NVD.name} not found, every row will be marked CPE-absent")
+        print("  WARNING: no NVD state found, every row will be marked CPE-absent")
 
     rows = []
     for rec in src.iter_rows(named=True):
@@ -362,6 +426,15 @@ def main() -> None:
         product_compact = compact(rec["product"])
         base, trailing = product_base(rec["product"], rec["vendor"])
         product_latin = latin_part(rec["product"])
+
+        if not have_nvd:
+            nvd_status, nvd_absent = None, True
+        elif rec["cve_id"] in nvd_state:
+            nvd_status, nvd_absent = nvd_state[rec["cve_id"]]
+        else:
+            # Published after the NVD state was captured. Its enrichment is
+            # unknown, which is neither absent nor present.
+            nvd_status, nvd_absent = None, None
 
         try:
             versions = json.loads(rec["versions_raw"] or "[]")
@@ -393,7 +466,9 @@ def main() -> None:
                 "product_base_compact": base.replace("-", "") if base else None,
                 "product_latin": product_latin,
                 "product_trailing_version": trailing,
-                "nvd_cpe_absent": (rec["cve_id"] in absent) if have_nvd else True,
+                "nvd_cpe_absent": nvd_absent,
+                "nvd_status": nvd_status,
+                "nvd_as_of": nvd_as_of,
                 "package_slug": package_slug,
                 "default_status": rec["default_status"],
                 "cna_cpes": rec["cpes"],
@@ -448,6 +523,17 @@ def main() -> None:
         cols = ["cna", "product_raw", "cve_id"]
         with pl.Config(tbl_rows=args.show_unparsed, tbl_width_chars=100, fmt_str_lengths=34):
             print(bad.select(cols).head(args.show_unparsed))
+
+    if have_nvd:
+        print("\n" + "=" * 70)
+        print(f"NVD STATE OF THESE CVEs (as of {nvd_as_of or 'unknown date'})")
+        print("=" * 70)
+        per_cve = out.unique(subset=["cve_id"]).filter(pl.col("nvd_cpe_absent").fill_null(False))
+        print(f"CVEs with product data and no CPE in NVD:  {per_cve.height}")
+        for status, count in per_cve.group_by("nvd_status").len().sort("len", descending=True).iter_rows():
+            print(f"  {str(status):<22} {count:>7}")
+        unknown = out.filter(pl.col("nvd_cpe_absent").is_null())["cve_id"].n_unique()
+        print(f"CVEs newer than the NVD state, not assessed: {unknown}")
 
     print(f"\nwritten to {OUT}")
 
