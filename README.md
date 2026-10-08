@@ -198,22 +198,46 @@ to misuse this tool.
 
 ## How accurate is the matching
 
-Measured, not assumed. Around 20,000 entries carry a CPE supplied by the CNA
-alongside their plain-text name, which makes them ground truth: build a name
-from the text fields and compare it to the CPE the CNA actually published.
+Measured, not assumed. Some entries carry a CPE supplied by the CNA alongside
+their plain-text name, which makes them ground truth: build a name from the
+text fields and compare it to the CPE the CNA actually published.
 
-On a 4,000 entry sample, vendor names agree 81.8% of the time, product names
-83.0%, and both together 64.8%. Run `python src/match.py --validate` to
-reproduce it.
+`python src/match.py --validate` scores every one of those entries, counting
+each affected entry once. Against the CVE List as of 8 October 2026 that is
+37,561 entries. Vendor names agree 97.5% of the time, product names 48.5%, and
+both together 46.0%.
 
-The remaining third is genuine naming divergence rather than a bug. A CNA may
-write "Red Hat Data Grid 8" and publish `redhat:jboss_data_grid`. No string
-rule derives one from the other, so closing that gap needs an alias dictionary,
-which does not exist here yet.
+An earlier version of this README reported 64.8%. That figure came from the
+first 4,000 rows of the table rather than from all of them, so it depended on
+the order the records arrived in. It should not be cited.
+
+The overall figure needs two qualifications, and the validation output prints
+both.
+
+Two CNAs supply 72% of the ground truth. Microsoft entries agree 21.4% of the
+time, mostly because the product text carries wording its CPEs drop ("Windows
+10 Version 1809" against `windows_10_1809`). Red Hat entries agree 45.5%,
+mostly because its CPE names are abbreviations ("Red Hat Enterprise Linux 9.6
+Extended Update Support" against `rhel_eus`). With those two set aside, the
+remaining 10,520 entries agree 79.4% of the time. Counting each distinct vendor
+and product name once, rather than each entry, gives 62.6%.
+
+The test cannot see most of the gap. A CNA that publishes no CPEs supplies no
+ground truth, and those are largely the CNAs whose records NVD leaves bare.
+Patchstack, Wordfence, GitHub and the Linux kernel CNA supply none. 78.7% of
+affected entries on CPE-absent CVEs come from CNAs with no ground truth at all,
+so matching accuracy for the WordPress ecosystem in particular is unmeasured
+rather than known to be good or bad.
+
+No string rule turns "Red Hat Data Grid 8" into `redhat:jboss_data_grid`, so
+closing the measured gap needs an alias dictionary, which does not exist here
+yet.
 
 Practically: this is sound for showing that a blind spot exists and roughly how
 large it is. It is not sound for claiming a complete list of everything
-affecting you. Around a third of matches will be missed.
+affecting you. The agreement rate measures how well a CPE can be built from a
+CNA's text. That is a proxy for how often a name you type will find the CNA's
+entry, not a direct measure of it.
 
 Names are matched in the script they were written in. Accents on Latin letters
 are ignored, so "QR Menu" finds "QR Menü". A product recorded only in Chinese
@@ -249,7 +273,9 @@ quality.
 - [x] Map CNAs to ecosystem categories rather than leaving raw email identifiers
 - [x] Matching engine and inventory audit tool
 - [x] Licence files
+- [x] Validation scores every ground-truth entry and reports by CNA
 - [ ] Alias dictionary to close the remaining naming gap
+- [ ] A reference for CNAs that publish no CPEs, without which accuracy on the WordPress ecosystem stays unmeasured
 - [ ] Test whether records persist in Awaiting Analysis without being Deferred
 - [ ] Publication format and versioning scheme
 - [ ] Zenodo deposit for citable DOI

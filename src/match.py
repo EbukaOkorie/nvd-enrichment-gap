@@ -15,7 +15,9 @@ so a caller can weigh an exact slug match differently from a compact one.
 Also carries a validation mode. The entries that do have a CNA-supplied CPE act
 as ground truth: build a CPE from the vendor and product fields, compare it to
 the published one, and the agreement rate measures whether normalisation is
-actually right rather than merely plausible.
+actually right rather than merely plausible. Every such entry is scored, and
+the result is broken down by CNA, because two or three large publishers supply
+most of the ground truth and an overall figure mostly describes them.
 
 Usage:
     python src/match.py --validate
@@ -254,96 +256,190 @@ def find(df: pl.DataFrame, product: str, version: str | None,
     ).filter(pl.col("version_match"))
 
 
-def validate(df: pl.DataFrame, limit: int = 4000) -> None:
-    """Check name normalisation against CNA-supplied CPEs, which are the only
-    ground truth available."""
-    truth = df.filter(pl.col("has_cna_cpe") & pl.col("product_cpe").is_not_null())
-    print(f"{truth.height} entries carry a CNA-supplied CPE")
-    if not truth.height:
-        return
-
-    sample = truth.head(limit)
-    agree_vendor = agree_product = both = comparable = 0
-    agree_vendor_c = agree_product_c = both_c = 0
-
-    for row in sample.iter_rows(named=True):
-        try:
-            cpes = json.loads(row["cna_cpes"] or "[]")
-        except json.JSONDecodeError:
+def _published_names(cna_cpes: str | None) -> set[tuple[str, str]]:
+    """Vendor and product pairs from the CPEs a CNA published for an entry."""
+    try:
+        cpes = json.loads(cna_cpes or "[]")
+    except json.JSONDecodeError:
+        return set()
+    published = set()
+    for cpe in cpes if isinstance(cpes, list) else []:
+        if not isinstance(cpe, str):
             continue
-        if not cpes:
+        parts = cpe.split(":")
+        # cpe:2.3:a:vendor:product:...  or  cpe:/a:vendor:product:...
+        if cpe.startswith("cpe:2.3:") and len(parts) > 4:
+            published.add((parts[3].lower(), parts[4].lower()))
+        elif len(parts) > 3:
+            published.add((parts[2].lower(), parts[3].lower()))
+    return published
+
+
+def _bare(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def score_entries(truth: pl.DataFrame) -> pl.DataFrame:
+    """Compare each entry's constructed names with the CPE its CNA published.
+
+    Returns the comparable entries with six boolean columns: vendor, product
+    and both, each strict and with separators ignored."""
+    rows = []
+    for row in truth.iter_rows(named=True):
+        published = _published_names(row["cna_cpes"])
+        if not published:
             continue
-        comparable += 1
-
-        published = set()
-        for cpe in cpes:
-            parts = cpe.split(":")
-            # cpe:2.3:a:vendor:product:...  or  cpe:/a:vendor:product:...
-            if cpe.startswith("cpe:2.3:") and len(parts) > 4:
-                published.add((parts[3].lower(), parts[4].lower()))
-            elif len(parts) > 3:
-                published.add((parts[2].lower(), parts[3].lower()))
-
-        def bare(text):
-            return re.sub(r"[^a-z0-9]", "", (text or "").lower())
-
         v_ok = any(row["vendor_cpe"] == v for v, _ in published)
         p_ok = any(row["product_cpe"] == p for _, p in published)
-
-        # Compare with separators stripped from BOTH sides. Comparing a
-        # stripped left side against an unstripped right side was the bug that
-        # made the product column show no gain at all.
-        v_ok_c = v_ok or any(bare(row["vendor_compact"]) == bare(v) for v, _ in published)
+        # Separators are stripped from BOTH sides. Comparing a stripped left
+        # side against an unstripped right side was the bug that once made the
+        # product column show no gain at all.
+        v_ok_c = v_ok or any(_bare(row["vendor_compact"]) == _bare(v) for v, _ in published)
         p_ok_c = p_ok or any(
-            bare(row["product_compact"]) == bare(p)
-            or bare(row["product_base_compact"]) == bare(p)
+            _bare(row["product_compact"]) == _bare(p)
+            or _bare(row["product_base_compact"]) == _bare(p)
             for _, p in published
         )
+        first = sorted(published)[0]
+        rows.append({
+            "cna": row["cna"],
+            "vendor_raw": row["vendor_raw"],
+            "product_raw": row["product_raw"],
+            "built": f"{row['vendor_cpe']}:{row['product_cpe']}",
+            "published": f"{first[0]}:{first[1]}",
+            "vendor_strict": v_ok, "product_strict": p_ok, "both_strict": v_ok and p_ok,
+            "vendor": v_ok_c, "product": p_ok_c, "both": v_ok_c and p_ok_c,
+        })
+    return pl.DataFrame(rows, schema={
+        "cna": pl.Utf8, "vendor_raw": pl.Utf8, "product_raw": pl.Utf8,
+        "built": pl.Utf8, "published": pl.Utf8,
+        "vendor_strict": pl.Boolean, "product_strict": pl.Boolean, "both_strict": pl.Boolean,
+        "vendor": pl.Boolean, "product": pl.Boolean, "both": pl.Boolean,
+    })
 
-        agree_vendor += v_ok
-        agree_product += p_ok
-        both += v_ok and p_ok
-        agree_vendor_c += v_ok_c
-        agree_product_c += p_ok_c
-        both_c += v_ok_c and p_ok_c
 
-    if not comparable:
+def _pct(frame: pl.DataFrame, column: str) -> float:
+    return frame[column].mean() * 100 if frame.height else 0.0
+
+
+def validate(df: pl.DataFrame, top: int = 15) -> pl.DataFrame | None:
+    """Check name normalisation against CNA-supplied CPEs, which are the only
+    ground truth available.
+
+    Scores every entry that has one. An earlier version scored the first 4,000
+    rows of the table, which made the result depend on the order the records
+    happened to arrive in and on how many version specs each entry carried."""
+    truth = df.filter(pl.col("has_cna_cpe") & pl.col("product_cpe").is_not_null())
+    if not truth.height:
+        print("no entries carry a CNA-supplied CPE")
+        return None
+
+    # The table holds one row per version spec. Count each affected entry
+    # once, or an entry listing forty versions outweighs one listing a single
+    # version forty to one.
+    entry_key = ["cve_id", "vendor_raw", "product_raw"]
+    truth = truth.unique(subset=entry_key, keep="first", maintain_order=True)
+    scored = score_entries(truth)
+    if not scored.height:
         print("nothing comparable")
-        return
+        return None
 
-    print("\n" + "=" * 66)
+    print("=" * 74)
     print("NAME NORMALISATION AGAINST CNA-PUBLISHED CPEs")
-    print("=" * 66)
-    print(f"compared:              {comparable}\n")
+    print("=" * 74)
+    print(f"affected entries with a CNA-supplied CPE:  {scored.height}\n")
     print(f"{'':22}{'strict':>10}{'with compact':>16}")
-    print(f"{'vendor matches:':<22}{agree_vendor / comparable * 100:9.1f}%{agree_vendor_c / comparable * 100:15.1f}%")
-    print(f"{'product matches:':<22}{agree_product / comparable * 100:9.1f}%{agree_product_c / comparable * 100:15.1f}%")
-    print(f"{'both match:':<22}{both / comparable * 100:9.1f}%{both_c / comparable * 100:15.1f}%")
+    for label, col in (("vendor matches:", "vendor"), ("product matches:", "product"), ("both match:", "both")):
+        print(f"{label:<22}{_pct(scored, col + '_strict'):9.1f}%{_pct(scored, col):15.1f}%")
     print("\nThe compact column drops separators, which is the difference between")
     print("red_hat and redhat. The gap between the two columns is how much of the")
     print("mismatch is purely punctuation rather than genuinely different naming.")
-    print("\nA low score here does not mean the code is broken. CNAs choose CPE")
-    print("names that often differ from their own vendor and product fields, so")
-    print("this measures how far apart those two are. It is the ceiling on")
-    print("constructing CPEs without a dictionary lookup.")
 
-    print("\ndisagreement examples:")
-    shown = 0
-    for row in sample.iter_rows(named=True):
-        if shown >= 8:
+    # The same question with every distinct name counted once, so a publisher
+    # that repeats one product across thousands of CVEs counts once for it.
+    names = scored.unique(subset=["vendor_raw", "product_raw"], keep="first", maintain_order=True)
+    print(f"\ncounting each distinct vendor and product name once ({names.height} names):")
+    print(f"{'both match:':<22}{_pct(names, 'both_strict'):9.1f}%{_pct(names, 'both'):15.1f}%")
+
+    by_cna = (
+        scored.group_by("cna")
+        .agg(
+            pl.len().alias("entries"),
+            (pl.col("vendor").mean() * 100).round(1).alias("vendor_pct"),
+            (pl.col("product").mean() * 100).round(1).alias("product_pct"),
+            (pl.col("both").mean() * 100).round(1).alias("both_pct"),
+        )
+        .with_columns((pl.col("entries") / scored.height * 100).round(1).alias("share_pct"))
+        .sort("entries", descending=True)
+        .select(["cna", "entries", "share_pct", "vendor_pct", "product_pct", "both_pct"])
+    )
+    print("\n" + "-" * 74)
+    print("BY CNA (with compact)")
+    print("-" * 74)
+    print("share_pct is how much of the test set each CNA supplies. Where two or")
+    print("three CNAs supply most of it, the overall figure above mostly describes")
+    print("them, so read the rows rather than the total.\n")
+    with pl.Config(tbl_rows=top, tbl_width_chars=100, fmt_str_lengths=24,
+                   tbl_hide_dataframe_shape=True, tbl_hide_column_data_types=True):
+        print(by_cna.head(top))
+
+    dominant = by_cna.filter(pl.col("share_pct") > 20)["cna"].to_list()
+    if dominant:
+        rest = scored.filter(~pl.col("cna").is_in(dominant))
+        if rest.height:
+            print(f"\nwithout {', '.join(dominant)} (each over 20% of the test set):")
+            print(f"{'both match:':<22}{_pct(rest, 'both_strict'):9.1f}%{_pct(rest, 'both'):15.1f}%"
+                  f"   across {rest.height} entries")
+
+    # Where the test has nothing to say. A CNA that publishes no CPEs supplies
+    # no ground truth, and those are the CNAs whose records NVD leaves bare.
+    if "nvd_cpe_absent" in df.columns:
+        gap = (
+            df.filter(pl.col("nvd_cpe_absent").fill_null(False))
+            .unique(subset=entry_key)
+            .group_by("cna").agg(pl.len().alias("cpe_absent_entries"))
+        )
+        coverage = (
+            gap.join(by_cna.select(["cna", pl.col("entries").alias("ground_truth_entries"), "both_pct"]),
+                     on="cna", how="left")
+            .with_columns(pl.col("ground_truth_entries").fill_null(0))
+            .sort("cpe_absent_entries", descending=True)
+        )
+        total_gap = coverage["cpe_absent_entries"].sum()
+        blind = coverage.filter(pl.col("ground_truth_entries") == 0)["cpe_absent_entries"].sum()
+        print("\n" + "-" * 74)
+        print("WHAT THIS TEST CANNOT SEE")
+        print("-" * 74)
+        print("CNAs ranked by affected entries on CVEs that NVD publishes without CPE,")
+        print("with how much ground truth each one supplies. A zero means matching")
+        print("accuracy for that CNA is unmeasured, not that it is good or bad.\n")
+        with pl.Config(tbl_rows=top, tbl_width_chars=100, fmt_str_lengths=24,
+                       tbl_hide_dataframe_shape=True, tbl_hide_column_data_types=True):
+            print(coverage.head(top))
+        if total_gap:
+            print(f"\n{blind} of {total_gap} CPE-absent entries ({blind / total_gap * 100:.1f}%) come from "
+                  f"CNAs with no ground truth at all.")
+
+    print("\n" + "-" * 74)
+    print("DISAGREEMENT EXAMPLES (at most two per CNA)")
+    print("-" * 74)
+    misses = names.filter(~pl.col("both"))
+    shown: dict[str, int] = {}
+    printed = 0
+    for row in misses.iter_rows(named=True):
+        if printed >= 12:
             break
-        try:
-            cpes = json.loads(row["cna_cpes"] or "[]")
-        except json.JSONDecodeError:
+        if shown.get(row["cna"], 0) >= 2:
             continue
-        if not cpes:
-            continue
-        parts = cpes[0].split(":")
-        pub = f"{parts[3]}:{parts[4]}" if cpes[0].startswith("cpe:2.3:") and len(parts) > 4 else cpes[0]
-        built = f"{row['vendor_cpe']}:{row['product_cpe']}"
-        if built.lower() != pub.lower():
-            print(f"  built {built[:38]:<38} published {pub[:38]}")
-            shown += 1
+        shown[row["cna"]] = shown.get(row["cna"], 0) + 1
+        printed += 1
+        print(f"  built {row['built'][:36]:<36} published {row['published'][:34]}")
+
+    print("\nA low score does not mean the code is broken. CNAs choose CPE names")
+    print("that often differ from their own vendor and product fields, so this")
+    print("measures how far apart those two are. It is the ceiling on constructing")
+    print("CPEs without a dictionary lookup.")
+    return scored
 
 
 def main() -> None:
