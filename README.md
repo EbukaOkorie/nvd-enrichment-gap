@@ -215,6 +215,13 @@ Practically: this is sound for showing that a blind spot exists and roughly how
 large it is. It is not sound for claiming a complete list of everything
 affecting you. Around a third of matches will be missed.
 
+Names are matched in the script they were written in. Accents on Latin letters
+are ignored, so "QR Menu" finds "QR Menü". A product recorded only in Chinese
+will not be found by an English name. Where a name mixes two scripts, its
+Latin words are tried as a last resort and reported as a `latin_part` match,
+which needs checking by eye: those words can be the product itself or only the
+platform it runs on.
+
 Three further limits worth knowing. Nearly 59% of version specs name a single
 exact version with no range, so someone running 4.2.1 will not match a CVE that
 lists only 4.2.0. Git commit hashes cannot be ordered, so those match exactly or

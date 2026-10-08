@@ -101,6 +101,8 @@ def name_rows(df: pl.DataFrame, product: str) -> pl.DataFrame:
         pl.col("product_compact") == keys["compact"],
         pl.col("product_base_compact") == keys["compact"],
     ]
+    if "product_latin" in df.columns:
+        exprs.append(pl.col("product_latin") == keys["slug"])
     for variant in keys.get("variants") or []:
         exprs.append(pl.col("product_base") == variant)
     return df.filter(pl.any_horizontal(exprs))

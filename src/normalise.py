@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 import polars as pl
@@ -74,6 +75,7 @@ OUT_SCHEMA = {
     "product_compact": pl.Utf8,
     "product_base": pl.Utf8,
     "product_base_compact": pl.Utf8,
+    "product_latin": pl.Utf8,
     "product_trailing_version": pl.Utf8,
     "package_slug": pl.Utf8,
     "default_status": pl.Utf8,
@@ -92,19 +94,73 @@ OUT_SCHEMA = {
 
 LEADING_ARTICLES = {"the", "a", "an"}
 
+# Latin letters that carry no combining mark to strip, so decomposition alone
+# leaves them untouched.
+LATIN_FOLD = str.maketrans({
+    "ø": "o", "ł": "l", "ı": "i", "đ": "d", "ð": "d", "ħ": "h",
+    "ß": "ss", "æ": "ae", "œ": "oe", "þ": "th",
+})
 
-def slugify(name: str | None) -> str | None:
-    """Lowercase, strip legal suffixes, hyphen separated."""
-    if not name:
-        return None
-    text = name.strip().lower()
-    if text in PLACEHOLDER_NAMES:
-        return None
 
-    text = re.sub(r"[\u2018\u2019\u201c\u201d]", "", text)
-    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+def _repair_mojibake(text: str) -> str:
+    """Undo UTF-8 that was decoded as Windows-1252, e.g. "IntelÂ®" for
+    "Intel®". Correctly encoded text fails the round trip and is returned
+    unchanged, so this cannot damage a name that was right to begin with."""
+    try:
+        return text.encode("cp1252").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
 
-    parts = text.split()
+
+def _fold_latin(text: str) -> str:
+    """Strip accents from Latin letters only: "Menü" becomes "menu".
+
+    Marks on other scripts are left alone. In Japanese and Cyrillic a
+    combining mark distinguishes one letter from another, so removing it
+    would merge different names."""
+    out = []
+    latin_base = False
+    for ch in unicodedata.normalize("NFD", text):
+        if unicodedata.combining(ch):
+            if latin_base:
+                continue
+        else:
+            latin_base = ch.isascii() and ch.isalpha()
+        out.append(ch)
+    return unicodedata.normalize("NFC", "".join(out)).translate(LATIN_FOLD)
+
+
+def _tokens(text: str, ascii_only: bool) -> list[str]:
+    """Split a lowercased name into word tokens.
+
+    Letters and digits of every script are kept unless ascii_only is set.
+    Dropping non-Latin letters used to reduce "WordPress 淘宝客插件" to
+    "wordpress", which then matched WordPress itself."""
+    if text.isascii():
+        return re.sub(r"[^a-z0-9]+", " ", text).split()
+    chars = []
+    prev_kept = False
+    for ch in text:
+        if ch.isascii():
+            keep = ch.isalnum()
+        elif ascii_only or ch < "\u00c0":
+            # Below U+00C0 the non-ASCII range holds only symbols. A few of
+            # them count as letters or digits (the ordinal and micro signs,
+            # superscript digits), and in product names they are decoration.
+            keep = False
+        elif unicodedata.category(ch).startswith("M"):
+            # Vowel signs in Indic and Thai words are marks, not letters, but
+            # they are part of the word. A mark is kept only when it attaches
+            # to a kept letter, which leaves out emoji variation selectors.
+            keep = prev_kept
+        else:
+            keep = ch.isalnum()
+        chars.append(ch if keep else " ")
+        prev_kept = keep
+    return "".join(chars).split()
+
+
+def _strip_noise(parts: list[str]) -> list[str]:
     while len(parts) > 1 and parts[0] in LEADING_ARTICLES:
         parts = parts[1:]
 
@@ -118,9 +174,51 @@ def slugify(name: str | None) -> str | None:
                 parts = parts[:-n]
                 changed = True
                 break
+    return parts
 
-    slug = "-".join(parts)
-    return slug or None
+
+def _clean(name: str | None) -> str | None:
+    """Lowercased text ready for tokenising, or None for a placeholder."""
+    if not name:
+        return None
+    text = name.strip()
+    if text.isascii():
+        # The common case, and the one that has to stay fast: this runs
+        # several times for every affected entry.
+        text = text.lower()
+        return None if text in PLACEHOLDER_NAMES else text
+
+    # Repair before lowercasing, because lowercasing changes the characters
+    # the repair depends on.
+    text = _fold_latin(_repair_mojibake(text).lower())
+    text = re.sub(r"[\u2018\u2019\u201c\u201d]", "", text)
+    return None if text in PLACEHOLDER_NAMES else text
+
+
+def slugify(name: str | None) -> str | None:
+    """Lowercase, strip legal suffixes, hyphen separated."""
+    text = _clean(name)
+    if text is None:
+        return None
+    return "-".join(_strip_noise(_tokens(text, ascii_only=False))) or None
+
+
+def latin_part(name: str | None) -> str | None:
+    """The Latin-script words of a name written in more than one script, or
+    None when the name is in a single script.
+
+    "UEditor - 百度编辑器" gives "ueditor", which is the product. "WordPress
+    淘宝客插件" gives "wordpress", which is only the platform it runs on. No
+    rule tells those apart, so this is kept as a separate, weaker match key
+    and never as the product's own slug."""
+    text = _clean(name)
+    if text is None or text.isascii():
+        return None
+    full = _tokens(text, ascii_only=False)
+    latin = _tokens(text, ascii_only=True)
+    if not latin or latin == full:
+        return None
+    return "-".join(_strip_noise(latin)) or None
 
 
 def compact(name: str | None) -> str | None:
@@ -263,6 +361,7 @@ def main() -> None:
         vendor_compact = compact(rec["vendor"])
         product_compact = compact(rec["product"])
         base, trailing = product_base(rec["product"], rec["vendor"])
+        product_latin = latin_part(rec["product"])
 
         try:
             versions = json.loads(rec["versions_raw"] or "[]")
@@ -292,6 +391,7 @@ def main() -> None:
                 "product_compact": product_compact,
                 "product_base": base,
                 "product_base_compact": base.replace("-", "") if base else None,
+                "product_latin": product_latin,
                 "product_trailing_version": trailing,
                 "nvd_cpe_absent": (rec["cve_id"] in absent) if have_nvd else True,
                 "package_slug": package_slug,

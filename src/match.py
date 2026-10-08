@@ -198,6 +198,13 @@ def find(df: pl.DataFrame, product: str, version: str | None,
         ("product_compact", pl.col("product_compact") == keys["compact"]),
         ("product_base_compact", pl.col("product_base_compact") == keys["compact"]),
     ]
+    # A name written in two scripts, matched on its Latin words alone. Weaker
+    # than the tiers above: those words can be the product ("UEditor - 百度编辑器")
+    # or only the platform it runs on ("WordPress 淘宝客插件"). It is tried only
+    # when nothing above matched, and the tier name is reported so a caller
+    # can treat it with suspicion.
+    if "product_latin" in df.columns:
+        tiers.append(("latin_part", pl.col("product_latin") == keys["slug"]))
     # Looser, so it comes last: the query with leading tokens dropped.
     for variant in keys.get("variants") or []:
         tiers.append((f"variant:{variant}", pl.col("product_base") == variant))
